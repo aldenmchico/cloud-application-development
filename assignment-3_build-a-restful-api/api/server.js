@@ -72,7 +72,7 @@ async function delete_boat(id) {
         }
     }
     let boat_key = datastore.key([BOAT, parseInt(id, 10)]);
-    let d = await datastore.delete(boat_key);
+    let d = await datastore.delete(boat_key);   
     if (d[0].indexUpdates === 0) return 404;
     return 204;
 }
