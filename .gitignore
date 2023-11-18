@@ -8,3 +8,9 @@
 assignment-6_oauth-2.0-implementation/chicoa_oauth_static/.env
 assignment-6_oauth-2.0-implementation/chicoa_oauth_static/node_modules
 assignment-6_oauth-2.0-implementation/chicoa_oauth_static/package-lock.json
+assignment-7_auth0-authentication/.env
+assignment-7_auth0-authentication/node_modules
+assignment-7_auth0-authentication/package-lock.json
+assignment-7_user-creation/.env
+assignment-7_user-creation/node_modules
+assignment-7_user-creation/package-lock.json
