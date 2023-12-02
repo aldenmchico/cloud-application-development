@@ -188,12 +188,13 @@ router.delete('/:boat_id', checkJwt, (err, req, res, next) => {
     if (err.status === 403) res.status(403).send("Forbidden");
     else if (err.status === 401) res.status(401).send("Invalid token..")
     else {
+        console.log(err.status)
         next();
     }
 });
 router.delete('/:boat_id', function(req, res, next){
     delete_boat(req.params.boat_id).then( (result) => {
-        if (result === "not found") res.status(404).send("Forbidden")
+        if (result === "not found") res.status(403).send("Forbidden")
         else res.status(204).end();
     }
     );

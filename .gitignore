@@ -14,3 +14,7 @@ assignment-7_auth0-authentication/package-lock.json
 assignment-7_user-creation/.env
 assignment-7_user-creation/node_modules
 assignment-7_user-creation/package-lock.json
+assignment-8_containerize-it/.env
+assignment-8_containerize-it/node_modules
+assignment-8_containerize-it/package-lock.json
+assignment-8_containerize-it/hw8-chicoa-credentials.json
