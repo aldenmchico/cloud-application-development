@@ -1,0 +1,24 @@
+{
+  "name": "contractorvue-user-creation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon server.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/datastore": "^7.5.1",
+    "axios": "^1.6.1",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.16.4",
+    "fetch": "^1.1.0",
+    "json-to-html": "^0.1.2",
+    "nodemon": "^3.0.1",
+    "qs": "^6.11.2",
+    "request": "^2.88.2"
+  }
+}

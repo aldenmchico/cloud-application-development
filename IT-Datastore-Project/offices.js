@@ -1,18 +1,16 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const json2html = require('json-to-html');
 
 const router = express.Router();
 
 const ds = require('./datastore');
-
-const { Datastore, PropertyFilter } = require('@google-cloud/datastore');
-
+const { PropertyFilter } = require('@google-cloud/datastore');
 const datastore = ds.datastore;
+const jwtPackage = require('./jwt')
 
 const OFFICE = "Office";
 const EMPLOYEE = "Employee";
-const QLIMIT = 3;
+const QLIMIT = 5;
 
 // Global RegEx variables
 var companyPattern = /^[a-zA-Z\s\-\d.!']{2,40}$/;
@@ -61,7 +59,12 @@ async function post_office(req){
     if (!phonePattern.test(req.body.phone_number)) return "invalid phone";
 
     // Return "company exists" if a company exists with the same company name provided in request body
-    const q = datastore.createQuery(OFFICE).filter(new PropertyFilter('company', '=', req.body.company))
+    const q = datastore.createQuery(OFFICE).filter(and([
+        new PropertyFilter('company', '=', req.body.company),
+        new PropertyFilter('city', '=', req.body.city),
+        new PropertyFilter('state', '=', req.body.state),
+        ])
+    )
     let q_results = await datastore.runQuery(q).then((entities) => {
         return entities[0].map(ds.fromDatastore);
     });
@@ -233,7 +236,12 @@ async function put_office(req) {
     if (!phonePattern.test(req.body.phone_number)) return "invalid phone";
     
     // Return "company exists" if a office exists with the same company name provided in request body
-    const q = datastore.createQuery(OFFICE).filter(new PropertyFilter('company', '=', req.body.company))
+    const q = datastore.createQuery(OFFICE).filter(and([
+        new PropertyFilter('company', '=', req.body.company),
+        new PropertyFilter('city', '=', req.body.city),
+        new PropertyFilter('state', '=', req.body.state),
+        ])
+    )
     let q_results = await datastore.runQuery(q).then((entities) => {
         return entities[0].map(ds.fromDatastore);
     });
@@ -273,7 +281,12 @@ async function patch_office(req) {
         if (req.body.company === null || req.body.company === undefined) updated_office.company = office[0].company;
         else {
             // Return "company exists" if a company exists with the same company name provided in request body
-            const q = datastore.createQuery(OFFICE).filter(new PropertyFilter('company', '=', req.body.company))
+            const q = datastore.createQuery(OFFICE).filter(and([
+                new PropertyFilter('company', '=', req.body.company),
+                new PropertyFilter('city', '=', req.body.city),
+                new PropertyFilter('state', '=', req.body.state),
+                ])
+            )
             let q_results = await datastore.runQuery(q).then((entities) => {
                 return entities[0].map(ds.fromDatastore);
             });
@@ -347,6 +360,13 @@ async function delete_office(id){
 
 /* ------------- Begin Controller Functions ------------- */
 
+// Check for a valid token in request header
+router.post("/", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else {
+        next();
+    }
+});
 // Create an office
 router.post('/', function (req, res) {
     if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
@@ -370,6 +390,15 @@ router.post('/', function (req, res) {
     }
 });
 
+// Check for a valid token in request header
+router.put("/:oid/employees/:eid", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
 // Assign an employee to an office
 router.put('/:oid/employees/:eid', function(req, res){
     put_assign_employee(req.params.oid, req.params.eid)
@@ -381,7 +410,16 @@ router.put('/:oid/employees/:eid', function(req, res){
         );
 });
 
-// Remove a load from a boat
+// Check for a valid token in request header
+router.delete("/:oid/employees/:eid", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
+// Remove an employee from an office
 router.delete('/:oid/employees/:eid', function(req, res){
     delete_remove_employee_from_office(req.params.oid, req.params.eid)
     .then( (result) => {
@@ -392,6 +430,13 @@ router.delete('/:oid/employees/:eid', function(req, res){
         );
 });
 
+// Check for a valid token in request header
+router.get("/", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else {
+        next();
+    }
+});
 // Get all offices with pagination
 router.get('/', function (req, res) {
     get_offices(req)
@@ -400,6 +445,15 @@ router.get('/', function (req, res) {
         });
 });
 
+// Check for a valid token in request header
+router.get("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
 // Get an office using its ID
 router.get('/:id', function (req, res) {
     get_office(req.params.id)
@@ -417,6 +471,15 @@ router.get('/:id', function (req, res) {
         });
 });
 
+// Check for a valid token in request header
+router.put("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
 // Edit all the fields for an existing office
 router.put('/:id', function (req, res) {
     if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
@@ -440,6 +503,15 @@ router.put('/:id', function (req, res) {
     }
 });
 
+// Check for a valid token in request header
+router.patch("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
 // Edit one or many of the fields for an existing office
 router.patch('/:id', function (req, res) {
     if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
@@ -460,6 +532,15 @@ router.patch('/:id', function (req, res) {
     }
 });
 
+// Check for a valid token in request header
+router.delete("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
 // Delete a office
 router.delete('/:id', function(req, res){
     delete_office(req.params.id).then( (result) => {

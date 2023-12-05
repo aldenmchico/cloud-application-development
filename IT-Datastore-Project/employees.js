@@ -1,18 +1,15 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const json2html = require('json-to-html');
 
 const router = express.Router();
 
 const ds = require('./datastore');
-
-const { Datastore, PropertyFilter } = require('@google-cloud/datastore');
-
 const datastore = ds.datastore;
+const jwtPackage = require('./jwt')
 
 const EMPLOYEE = "Employee";
 const OFFICE = "Office";
-const QLIMIT = 3;
+const QLIMIT = 5;
 
 // Global RegEx variables
 var namePattern = /^[a-zA-Z\s\-']{2,40}$/;
@@ -228,6 +225,13 @@ async function delete_employee(id){
 
 /* ------------- Begin Controller Functions ------------- */
 
+// Check for a valid token in request header
+router.post("/", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else {
+        next();
+    }
+});
 // Create an employee
 router.post('/', function (req, res) {
     if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
@@ -248,6 +252,13 @@ router.post('/', function (req, res) {
     }
 });
 
+// Check for a valid token in request header
+router.get("/", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else {
+        next();
+    }
+});
 // Get all employees with pagination
 router.get('/', function (req, res) {
     get_employees(req)
@@ -256,6 +267,15 @@ router.get('/', function (req, res) {
         });
 });
 
+// Check for a valid token in request header
+router.get("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
 // Get an employee using its ID
 router.get('/:id', function (req, res) {
     get_employee(req.params.id)
@@ -273,6 +293,15 @@ router.get('/:id', function (req, res) {
         });
 });
 
+// Check for a valid token in request header
+router.put("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
 // Edit all the fields for an existing employee
 router.put('/:id', function (req, res) {
     if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
@@ -293,6 +322,15 @@ router.put('/:id', function (req, res) {
     }
 });
 
+// Check for a valid token in request header
+router.patch("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
 // Edit one or many of the fields for an existing employee
 router.patch('/:id', function (req, res) {
     if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
@@ -310,6 +348,15 @@ router.patch('/:id', function (req, res) {
     }
 });
 
+// Check for a valid token in request header
+router.delete("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
+    if (err.status === 401) res.status(401).send("Invalid token...");
+    else if (err.status === 403) res.status(403).send("Forbidden");
+    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    else {
+        next();
+    }
+});
 // Delete a employee
 router.delete('/:id', function(req, res){
     delete_employee(req.params.id).then( (result) => {
