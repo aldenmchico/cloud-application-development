@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const router = express.Router();
 
 const ds = require('./datastore');
-const { PropertyFilter } = require('@google-cloud/datastore');
+const { PropertyFilter, and } = require('@google-cloud/datastore');
 const datastore = ds.datastore;
 const jwtPackage = require('./jwt')
 
@@ -63,6 +63,7 @@ async function post_office(req){
         new PropertyFilter('company', '=', req.body.company),
         new PropertyFilter('city', '=', req.body.city),
         new PropertyFilter('state', '=', req.body.state),
+        new PropertyFilter('owner', '=', req.auth.sub)
         ])
     )
     let q_results = await datastore.runQuery(q).then((entities) => {
@@ -73,7 +74,7 @@ async function post_office(req){
     // Save office with initial data from POST request
     var key = datastore.key(OFFICE);
 	const new_office = {"company": req.body.company, "city": req.body.city, "state": req.body.state, "general_manager": req.body.general_manager,
-                        "phone_number": req.body.phone_number, "employees": []};
+                        "phone_number": req.body.phone_number, "employees": [], "owner": req.auth.sub};
 	let s = await datastore.save({"key":key, "data":new_office});
     
     // Retrieve the office using the generated key and add id / self entities
@@ -91,17 +92,18 @@ async function post_office(req){
 }
 
 // Assign an employee to an office
-async function put_assign_employee(oid, eid){  
+async function put_assign_employee(req){  
     try {
     // Get the office and employee objects from datastore
-    const o_key = datastore.key([OFFICE, parseInt(oid,10)]);
+    const o_key = datastore.key([OFFICE, parseInt(req.params.oid,10)]);
     let office = await datastore.get(o_key);
-    const e_key = datastore.key([EMPLOYEE, parseInt(eid,10)]);
+    const e_key = datastore.key([EMPLOYEE, parseInt(req.params.eid,10)]);
     let employee = await datastore.get(e_key);
 
-    // Check if the office / employee do not exist. Return "not found" if true.
+    // Check if the office / employee do not exist. Return "not found" if true. Return "forbidden" if the user is not authorized to edit the data.
     if (office[0] === undefined || office[0] === null ||
         employee[0] === undefined || employee[0] === null) return "not found";
+    else if ((office[0].owner !== req.auth.sub) || ( req.auth.sub !== employee[0].owner)) return "forbidden"
 
     // Check if the employee already has a employer assigned. Return "employer assigned" if true.
     if (employee[0].employer !== null) return "employer assigned";
@@ -131,22 +133,23 @@ async function put_assign_employee(oid, eid){
 }
 
 // Remove employee from company
-async function delete_remove_employee_from_office(oid, eid){  
+async function delete_remove_employee_from_office(req){  
 
     // Get the office and employee objects from datastore
-    const o_key = datastore.key([OFFICE, parseInt(oid,10)]);
+    const o_key = datastore.key([OFFICE, parseInt(req.params.oid,10)]);
     let office = await datastore.get(o_key);
-    const e_key = datastore.key([EMPLOYEE, parseInt(eid,10)]);
+    const e_key = datastore.key([EMPLOYEE, parseInt(req.params.eid,10)]);
     let employee = await datastore.get(e_key);
 
-    // Check if the office / employee do not exist. Return "not found" if true.
+    // Check if the office / employee do not exist. Return "not found" if true. Return "forbidden" if the user is not authorized to edit the data.
     if (office[0] === undefined || office[0] === null ||
         employee[0] === undefined || employee[0] === null) return "not found";
+    else if ((office[0].owner !== req.auth.sub) || ( req.auth.sub !== employee[0].owner)) return "forbidden"
 
     // Remove the employee from the office's employees array
     let in_employees = false;
     for (let i = 0; i < office[0].employees.length; i++) {
-        if (office[0].employees[i].id === eid) {
+        if (office[0].employees[i].id === req.params.eid) {
             delete(office[0].employees[i]);
             in_employees = true;
         }
@@ -183,7 +186,7 @@ async function get_office(id) {
 function get_offices(req){
     
     // Create a query for QLIMIT number of offices
-    var q = datastore.createQuery(OFFICE).limit(QLIMIT);
+    var q = datastore.createQuery(OFFICE).filter(new PropertyFilter('owner', '=', req.auth.sub)).limit(QLIMIT);
     const results = {};
 
     // If the URL includes a cursor, set start point of query to the cursor location
@@ -198,6 +201,7 @@ function get_offices(req){
             if(entities[1].moreResults !== ds.Datastore.NO_MORE_RESULTS ){
                 let encode_cursor = encodeURIComponent(entities[1].endCursor);
                 results.next = req.protocol + "://" + req.get("host") + req.baseUrl + "?cursor=" + encode_cursor;
+                results.cursor = encode_cursor
             }
 			return results;  
 		});
@@ -206,10 +210,11 @@ function get_offices(req){
 // Edit all the fields for an existing office
 async function put_office(req) {
 
-    // Return "not found" if office does not exist.
+    // Return "not found" if office does not exist. Return "forbidden" if the user is not authorized to edit the data.
     const key = datastore.key([OFFICE, parseInt(req.params.id, 10)]);
     let office = await datastore.get(key);
     if (office[0] === undefined || office[0] === null) return "not found";
+    else if (office[0].owner && office[0].owner !== req.auth.sub) return "forbidden";
 
     // Return "invalid attribute" if an extraneous attribute was found in input
     const keys = Object.keys(req.body);
@@ -240,6 +245,7 @@ async function put_office(req) {
         new PropertyFilter('company', '=', req.body.company),
         new PropertyFilter('city', '=', req.body.city),
         new PropertyFilter('state', '=', req.body.state),
+        new PropertyFilter('owner', '=', req.auth.sub)
         ])
     )
     let q_results = await datastore.runQuery(q).then((entities) => {
@@ -249,8 +255,8 @@ async function put_office(req) {
 
     // Update the office if it exists
     const updated_office = { "company": req.body.company, "city": req.body.city, "state": req.body.state, "general_manager": req.body.general_manager, 
-                            "phone_number": req.body.phone_number, "id": office[0].id, "self": office[0].self };
-    const s = await datastore.save({ "key": key, "data": updated_office });
+                            "phone_number": req.body.phone_number, "id": office[0].id, "self": office[0].self, "owner": office[0].owner };
+    await datastore.save({ "key": key, "data": updated_office });
 
     // Return the updated office object
     return datastore.get(key);
@@ -260,10 +266,11 @@ async function put_office(req) {
 // Edit one or many of the fields for an existing office
 async function patch_office(req) {
     try {
-        // Return "not found" if office does not exist.
+        // Return "not found" if office does not exist. Return "forbidden" if the user is not authorized to edit the data.
         const key = datastore.key([OFFICE, parseInt(req.params.id, 10)]);
         let office = await datastore.get(key);
         if (office[0] === undefined || office[0] === null) return "not found";
+        else if (office[0].owner && office[0].owner !== req.auth.sub) return "forbidden";
 
         // Return "invalid attribute" if an extraneous attribute was found in input
         const keys = Object.keys(req.body);
@@ -276,28 +283,32 @@ async function patch_office(req) {
         let updated_office = {}
         updated_office.id = office[0].id;
         updated_office.self = office[0].self;
+        updated_office.owner = office[0].owner;
 
         // Update company attribute if it's included in the request body.
-        if (req.body.company === null || req.body.company === undefined) updated_office.company = office[0].company;
+        if (req.body.company === undefined) updated_office.company = office[0].company;
         else {
-            // Return "company exists" if a company exists with the same company name provided in request body
-            const q = datastore.createQuery(OFFICE).filter(and([
-                new PropertyFilter('company', '=', req.body.company),
-                new PropertyFilter('city', '=', req.body.city),
-                new PropertyFilter('state', '=', req.body.state),
-                ])
-            )
-            let q_results = await datastore.runQuery(q).then((entities) => {
-                return entities[0].map(ds.fromDatastore);
-            });
-            if (q_results.length !== 0) return "company exists";
+            // Return "company exists" if a office exists with the same company name, city, state, and owner provided in request body
+            if (req.body.company !== undefined && req.body.city !== undefined && req.body.state !== undefined) {
+                    const q = datastore.createQuery(OFFICE).filter(and([
+                        new PropertyFilter('company', '=', req.body.company),
+                        new PropertyFilter('city', '=', req.body.city),
+                        new PropertyFilter('state', '=', req.body.state),
+                        new PropertyFilter('owner', '=', req.auth.sub)
+                        ])
+                    )
+                    let q_results = await datastore.runQuery(q).then((entities) => {
+                        return entities[0].map(ds.fromDatastore);
+                    });
+                    if (q_results.length !== 0) return "company exists";
+                }
             // Return "invalid company" if the company attribute contains non alphanumeric characters and is not between 2-40 characters in length
             if (!companyPattern.test(req.body.company)) return "invalid company";
             else updated_office.company = req.body.company;
         }
-
+        
         // Update city attribute if it's included in the request body.
-        if (req.body.city === null || req.body.city === undefined) updated_office.city = office[0].city;
+        if (req.body.city === undefined) updated_office.city = office[0].city;
         else {
             // Return "invalid city" if the city attribute contains non alphanumeric characters and is not between 2-40 characters in length
             if (!cityPattern.test(req.body.city)) return "invalid city";
@@ -305,7 +316,7 @@ async function patch_office(req) {
         }
 
         // Update state attribute if it's included in the request body.
-        if (req.body.state === null || req.body.state === undefined) updated_office.state = office[0].state;
+        if (req.body.state === undefined) updated_office.state = office[0].state;
         else {
             // Return "invalid state" if the state attribute is not in the US State Abbreviations array
             if (!usStateAbbreviations.includes(req.body.state)) return "invalid state";
@@ -313,7 +324,7 @@ async function patch_office(req) {
         }
 
         // Update general manager attribute if it's included in the request body.
-        if (req.body.general_manager === null || req.body.general_manager === undefined) updated_office.general_manager = office[0].general_manager;
+        if ( req.body.general_manager === undefined) updated_office.general_manager = office[0].general_manager;
         else {
             // Return "invalid general manager" if the general manager attribute contains non alphanumeric characters and is not between 2-40 characters in length
             if (!generalManagerPattern.test(req.body.general_manager)) return "invalid general manager";
@@ -321,16 +332,16 @@ async function patch_office(req) {
         }
 
         // Update phone number attribute if it's included in the request body.
-        if (req.body.phone_number === null || req.body.phone_number === undefined) updated_office.phone_number = office[0].phone_number;
+        if (req.body.phone_number === undefined) updated_office.phone_number = office[0].phone_number;
         else {
             // Return "invalid phone" if the phone attribute contains characters not typically found in a phone number
             if (!phonePattern.test(req.body.phone_number)) return "invalid phone";
             else updated_office.phone_number = req.body.phone_number;
         }
-    
-        // Update the office if it exists
-        const s = await datastore.save({ "key": key, "data": updated_office });
         
+        // Update the office if it exists
+        await datastore.save({ "key": key, "data": updated_office });
+
         // Return the updated office object
         return datastore.get(key);
     } catch {
@@ -340,14 +351,14 @@ async function patch_office(req) {
 }
 
 // Delete office with provided ID
-async function delete_office(id){
+async function delete_office(req){
     
-    // Return "not found" if office does not exist.
-    const key = datastore.key([OFFICE, parseInt(id, 10)]);
+    // Return "not found" if office does not exist. Return "forbidden" if the user is not authorized to edit the data.
+    const key = datastore.key([OFFICE, parseInt(req.params.id, 10)]);
     try {
         let office = await datastore.get(key);
         if (office[0] === undefined || office[0] === null) return "not found";
-    
+        else if (office[0].owner && office[0].owner !== req.auth.sub) return "forbidden";
         // Delete the office if it exists
         return datastore.delete(key);
     }
@@ -359,10 +370,10 @@ async function delete_office(id){
 /* ------------- End Model Functions ------------- */
 
 /* ------------- Begin Controller Functions ------------- */
-
+ 
 // Check for a valid token in request header
 router.post("/", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
     else {
         next();
     }
@@ -381,7 +392,7 @@ router.post('/', function (req, res) {
                 else if (office === "invalid state") res.status(400).json({"Error": "The request object's state attribute is not valid"});
                 else if (office === "invalid general manager") res.status(400).json({"Error": "The request object's general manager attribute is not valid"});
                 else if (office === "invalid phone") res.status(400).json({"Error": "The request object's phone number attribute is not valid"});
-                else if (office === "company exists") res.status(403).json({"Error": "The company provided in request already exists"});
+                else if (office === "company exists") res.status(403).json({"Error": "The company provided in request already exists for this user"});
                 else {
                     res.location(req.protocol + "://" + req.get('host') + req.baseUrl + "/" + office[0].id); 
                     res.status(201).json(office[0]);
@@ -392,19 +403,19 @@ router.post('/', function (req, res) {
 
 // Check for a valid token in request header
 router.put("/:oid/employees/:eid", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
-    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
+    else if (err.status >= 400) res.status(err.status).json({"Error": "Bad Request"});
     else {
         next();
     }
 });
 // Assign an employee to an office
 router.put('/:oid/employees/:eid', function(req, res){
-    put_assign_employee(req.params.oid, req.params.eid)
+    put_assign_employee(req)
     .then( (result) => {
-        if (result === "employer assigned") res.status(403).send({"Error": "The employee is already assigned a company"})
-        else if (result === "not found") res.status(404).send({"Error": "The specified employee and/or office does not exist"})
+        if (result === "employer assigned") res.status(403).json({"Error": "The employee is already assigned a company"})
+        else if (result === "forbidden") res.status(403).json({"Error": "Forbidden"});
+        else if (result === "not found") res.status(404).json({"Error": "The specified employee and/or office does not exist"})
         else res.status(204).json(result[0])
     }
         );
@@ -412,19 +423,19 @@ router.put('/:oid/employees/:eid', function(req, res){
 
 // Check for a valid token in request header
 router.delete("/:oid/employees/:eid", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
-    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
+    else if (err.status >= 400) res.status(err.status).json({"Error": "Bad Request"});
     else {
         next();
     }
 });
 // Remove an employee from an office
 router.delete('/:oid/employees/:eid', function(req, res){
-    delete_remove_employee_from_office(req.params.oid, req.params.eid)
+    delete_remove_employee_from_office(req)
     .then( (result) => {
-        if (result === "not assigned") res.status(404).send({"Error": "No office with this office_id is loaded with the employee with this employee_id"})
-        else if (result === "not found") res.status(404).send({"Error": "The specified employee and/or office does not exist"})
+        if (result === "not assigned") res.status(404).json({"Error": "No office with this office_id is loaded with the employee with this employee_id"})
+        else if (result === "forbidden") res.status(403).json({"Error": "Forbidden"});
+        else if (result === "not found") res.status(404).json({"Error": "The specified employee and/or office does not exist"})
         else res.status(204).json(result[0])
     }
         );
@@ -432,7 +443,7 @@ router.delete('/:oid/employees/:eid', function(req, res){
 
 // Check for a valid token in request header
 router.get("/", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
     else {
         next();
     }
@@ -447,9 +458,8 @@ router.get('/', function (req, res) {
 
 // Check for a valid token in request header
 router.get("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
-    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
+    else if (err.status >= 400) res.status(err.status).json({"Error": "Bad Request"});
     else {
         next();
     }
@@ -460,22 +470,17 @@ router.get('/:id', function (req, res) {
         .then(office => {
             if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
             else {
-                if (office[0] === undefined || office[0] === null || office === "not found") {
-                    // The 0th element is undefined. This means there is no office with this id
-                    res.status(404).json({ 'Error': 'No office with this office_id exists' });
-                } else {
-                    // Return the 0th element which is the office with this id
-                    res.status(200).json(office[0]);
-                }
+                if (office[0] === undefined || office[0] === null || office === "not found") res.status(404).json({ 'Error': 'No office with this office_id exists' });
+                else if (office[0].owner && office[0].owner !== req.auth.sub) res.status(403).json({"Error": "Forbidden"});
+                else res.status(200).json(office[0]);
             }
         });
 });
 
 // Check for a valid token in request header
 router.put("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
-    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
+    else if (err.status >= 400) res.status(err.status).json({"Error": "Bad Request"});
     else {
         next();
     }
@@ -487,6 +492,7 @@ router.put('/:id', function (req, res) {
         put_office(req).then( (office) => {
             res.set("Content", "application/json");
             if (office === "not found") res.status(404).json({ 'Error': 'No office with this office_id exists' });
+            else if (office === "forbidden") res.status(403).json({"Error": "Forbidden"});
             else if (office === "invalid attribute") res.status(400).json({"Error": "The request object contains an invalid attribute"});
             else if (office === "insufficient attributes") res.status(400).json({"Error": "The request object is missing at least one of the required attributes"});
             else if (office === "invalid company") res.status(400).json({"Error": "The request object's company attribute is not valid"});
@@ -494,7 +500,7 @@ router.put('/:id', function (req, res) {
             else if (office === "invalid state") res.status(400).json({"Error": "The request object's state attribute is not valid"});
             else if (office === "invalid general manager") res.status(400).json({"Error": "The request object's general manager attribute is not valid"});
             else if (office === "invalid phone") res.status(400).json({"Error": "The request object's phone number attribute is not valid"});
-            else if (office === "company exists") res.status(403).json({"Error": "The company provided in request already exists"});
+            else if (office === "company exists") res.status(403).json({"Error": "The company provided in request already exists for this user"});
             else {
                 res.location(req.protocol + "://" + req.get('host') + req.baseUrl + "/" + office[0].id); 
                 res.status(303).json(office[0]);
@@ -505,9 +511,9 @@ router.put('/:id', function (req, res) {
 
 // Check for a valid token in request header
 router.patch("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
-    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
+    else if (err.status === 403) res.status(403).json({"Error": "Forbidden"});
+    else if (err.status >= 400) res.status(err.status).json({"Error": "Bad Request"});
     else {
         next();
     }
@@ -519,6 +525,7 @@ router.patch('/:id', function (req, res) {
         patch_office(req).then( (office) => {
             res.set("Content", "application/json");
             if (office === "not found") res.status(404).json({ 'Error': 'No office with this office_id exists' });
+            else if (office === "forbidden") res.status(403).json({"Error": "Forbidden"});
             else if (office === "invalid attribute") res.status(400).json({"Error": "The request object contains an invalid attribute"});
             else if (office === "insufficient attributes") res.status(400).json({"Error": "The request object is missing at least one of the required attributes"});
             else if (office === "invalid company") res.status(400).json({"Error": "The request object's company attribute is not valid"});
@@ -526,7 +533,7 @@ router.patch('/:id', function (req, res) {
             else if (office === "invalid state") res.status(400).json({"Error": "The request object's state attribute is not valid"});
             else if (office === "invalid general manager") res.status(400).json({"Error": "The request object's general manager attribute is not valid"});
             else if (office === "invalid phone") res.status(400).json({"Error": "The request object's phone number attribute is not valid"});
-            else if (office === "company exists") res.status(403).json({"Error": "The company provided in request already exists"});
+            else if (office === "company exists") res.status(403).json({"Error": "The company provided in request already exists for this user"});
             else res.status(200).json(office[0]);
         });
     }
@@ -534,17 +541,17 @@ router.patch('/:id', function (req, res) {
 
 // Check for a valid token in request header
 router.delete("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
-    else if (err.status >= 400) res.status(err.status).send("Bad Request");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
+    else if (err.status >= 400) res.status(err.status).json({"Error": "Bad Request"});
     else {
         next();
     }
 });
 // Delete a office
 router.delete('/:id', function(req, res){
-    delete_office(req.params.id).then( (result) => {
+    delete_office(req).then( (result) => {
         if (result === "not found") res.status(404).json({ 'Error': 'No office with this office_id exists' });
+        else if (result === "forbidden") res.status(403).json({"Error": "Forbidden"});
         else res.status(204).end();
     }
     );

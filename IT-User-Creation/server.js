@@ -38,6 +38,7 @@ app.post('/create', async (req, res) => {
     "verify_email": false
   }
   try {
+
     // Create an account in Auth0 
     let response = await axios.post('https://' + process.env.DOMAIN + '/api/v2/users', postData, 
     {headers: {'Content-Type': 'application/json', 'Authorization': `${authToken}`}});
@@ -45,9 +46,11 @@ app.post('/create', async (req, res) => {
       "username": `${req.body.email}`,
       "password": `${req.body.password}`
     }
+    //console.log(response.data)
+
     // Save user account info in datastore
     var key = datastore.key(USER);
-    const new_user = {"username": req.body.email, "password": req.body.password}
+    const new_user = {"username": req.body.email, "password": req.body.password, "sub":response.data.user_id}
     await datastore.save({"key":key, "data":new_user});
 
     // Retrieve the user using the generated key and add id / self entities
@@ -64,7 +67,8 @@ app.post('/create', async (req, res) => {
       const URL = process.env.LOCAL_DOMAIN + '/jwt'
       response = await axios.post(URL, postData, {headers: {'Content-Type': 'application/json'}})
       res.status(200).send(`
-      <li><b>User ID</b>: ${new_user.id} </li>
+      <li><b>User's Datastore ID</b>: ${new_user.id} </li>
+      <li><b>User's Auth0 Sub</b>: ${new_user.sub} </li>
       <li>Access Token: ${response.data.access_token}</li>
       <li><b>ID Token</b>: ${response.data.id_token}</li>
       <li>Scope: ${response.data.scope}</li>
@@ -135,6 +139,7 @@ app.post('/jwt', async (req, res) => {
   let headers = { 'content-type': 'application/json' }
   try {
     let response = await axios.post(url, postData, headers)
+    //console.log(response)
     res.status(200).send(response.data)
   } catch {
     res.status(500).send(error)

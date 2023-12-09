@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const router = express.Router();
 
 const ds = require('./datastore');
+const { PropertyFilter } = require('@google-cloud/datastore');
 const datastore = ds.datastore;
 const jwtPackage = require('./jwt')
 
@@ -43,7 +44,8 @@ async function post_employee(req){
 
     // Save employee with initial data from POST request
     var key = datastore.key(EMPLOYEE);
-	const new_employee = { "first_name": req.body.first_name, "last_name": req.body.last_name, "pay_rate": req.body.pay_rate.toFixed(2), "employer": null };
+	const new_employee = { "first_name": req.body.first_name, "last_name": req.body.last_name, "pay_rate": req.body.pay_rate.toFixed(2), 
+                            "employer": null,  "owner": req.auth.sub };
 	let s = await datastore.save({"key":key, "data":new_employee});
     
     // Retrieve the employee using the generated key and add id / self entities
@@ -75,7 +77,7 @@ async function get_employee(id) {
 function get_employees(req){
     
     // Create a query for QLIMIT number of employees
-    var q = datastore.createQuery(EMPLOYEE).limit(QLIMIT);
+    var q = datastore.createQuery(EMPLOYEE).filter(new PropertyFilter('owner', '=', req.auth.sub)).limit(QLIMIT);
     const results = {};
 
     // If the URL includes a cursor, set start point of query to the cursor location
@@ -90,6 +92,7 @@ function get_employees(req){
             if(entities[1].moreResults !== ds.Datastore.NO_MORE_RESULTS ){
                 let encode_cursor = encodeURIComponent(entities[1].endCursor);
                 results.next = req.protocol + "://" + req.get("host") + req.baseUrl + "?cursor=" + encode_cursor;
+                results.cursor = encode_cursor
             }
 			return results;  
 		});
@@ -98,10 +101,11 @@ function get_employees(req){
 // Edit all the fields for an existing employee
 async function put_employee(req) {
 
-    // Return "not found" if employee does not exist.
+    // Return "not found" if employee does not exist. Return "forbidden" if the user is not authorized to edit the data.
     const key = datastore.key([EMPLOYEE, parseInt(req.params.id, 10)]);
     let employee = await datastore.get(key);
     if (employee[0] === undefined || employee[0] === null) return "not found";
+    else if (employee[0].owner && employee[0].owner !== req.auth.sub) return "forbidden";
 
     // Return "invalid attribute" if an extraneous attribute was found in input
     const keys = Object.keys(req.body);
@@ -124,7 +128,7 @@ async function put_employee(req) {
 
     // Update the employee if it exists
     const updated_employee = { "first_name": req.body.first_name, "last_name": req.body.last_name, "pay_rate": req.body.pay_rate.toFixed(2),
-                            "id": employee[0].id, "self": employee[0].self };
+                            "id": employee[0].id, "self": employee[0].self, "owner": employee[0].owner, "employer": employee[0].employer };
     const s = await datastore.save({ "key": key, "data": updated_employee });
 
     // Return the updated employee object
@@ -139,6 +143,7 @@ async function patch_employee(req) {
         const key = datastore.key([EMPLOYEE, parseInt(req.params.id, 10)]);
         let employee = await datastore.get(key);
         if (employee[0] === undefined || employee[0] === null) return "not found";
+        else if (employee[0].owner && employee[0].owner !== req.auth.sub) return "forbidden";
 
         // Return "invalid attribute" if an extraneous attribute was found in input
         const keys = Object.keys(req.body);
@@ -151,6 +156,8 @@ async function patch_employee(req) {
         let updated_employee = {}
         updated_employee.id = employee[0].id;
         updated_employee.self = employee[0].self;
+        updated_employee.employer = employee[0].employer;
+        updated_employee.owner = employee[0].owner;
 
         // Update first_name attribute if it's included in the request body.
         if (req.body.first_name === null || req.body.first_name === undefined) updated_employee.first_name = employee[0].first_name;
@@ -188,12 +195,13 @@ async function patch_employee(req) {
 }
 
 // Delete employee from datastore
-async function delete_employee(id){
-    try {
+async function delete_employee(req){
+    //try {
     // Check if the employee exists. Return "not found" if true.
-    const e_key = datastore.key([EMPLOYEE, parseInt(id,10)]);
+    const e_key = datastore.key([EMPLOYEE, parseInt(req.params.id,10)]);
     let employee = await datastore.get(e_key);
     if (employee[0] === undefined || employee[0] === null) return "not found";
+    else if (employee[0].owner && employee[0].owner !== req.auth.sub) return "forbidden";
     
     // Get the office associated with the employee
     if (employee[0].employer !== null) {
@@ -203,7 +211,7 @@ async function delete_employee(id){
         let office = await datastore.get(o_key);
         // Remove the employee from the office
         for (let i = 0; i < office[0].employees.length; i++) {
-            if (office[0].employees[i].id === id) delete(office[0].employees[i]);
+            if (office[0].employees[i].id === req.params.id) delete(office[0].employees[i]);
         }
         // Remove the empty item from delete operation
         var filtered_employees = office[0].employees.filter(x => {
@@ -216,9 +224,9 @@ async function delete_employee(id){
     
     // Delete the employee if the employee exists
     return datastore.delete(e_key);
-    } catch {
-        return "not found";
-    }
+    //} catch {
+    //    return "not found";
+    //}
 }
 
 /* ------------- End Model Functions ------------- */
@@ -227,7 +235,7 @@ async function delete_employee(id){
 
 // Check for a valid token in request header
 router.post("/", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
     else {
         next();
     }
@@ -254,7 +262,7 @@ router.post('/', function (req, res) {
 
 // Check for a valid token in request header
 router.get("/", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
     else {
         next();
     }
@@ -269,8 +277,7 @@ router.get('/', function (req, res) {
 
 // Check for a valid token in request header
 router.get("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
     else if (err.status >= 400) res.status(err.status).send("Bad Request");
     else {
         next();
@@ -282,10 +289,9 @@ router.get('/:id', function (req, res) {
         .then(employee => {
             if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
             else {
-                if (employee[0] === undefined || employee[0] === null || employee === "not found") {
-                    // The 0th element is undefined. This means there is no employee with this id
-                    res.status(404).json({ 'Error': 'No employee with this employee_id exists' });
-                } else {
+                if (employee[0] === undefined || employee[0] === null || employee === "not found") res.status(404).json({ 'Error': 'No employee with this employee_id exists' });
+                else if (employee[0].owner && employee[0].owner !== req.auth.sub) res.status(403).json({"Error": "Forbidden"});
+                else {
                     // Return the 0th element which is the employee with this id
                     res.status(200).json(employee[0]);
                 }
@@ -295,8 +301,8 @@ router.get('/:id', function (req, res) {
 
 // Check for a valid token in request header
 router.put("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
+    else if (err.status === 403) res.status(403).json({"Error": "Forbidden"});
     else if (err.status >= 400) res.status(err.status).send("Bad Request");
     else {
         next();
@@ -309,6 +315,7 @@ router.put('/:id', function (req, res) {
         put_employee(req).then( (employee) => {
             res.set("Content", "application/json");
             if (employee === "not found") res.status(404).json({ 'Error': 'No employee with this employee_id exists' });
+            else if (employee === "forbidden") res.status(403).json({"Error": "Forbidden"});
             else if (employee === "invalid attribute") res.status(400).json({"Error": "The request object contains an invalid attribute"});
             else if (employee === "insufficient attributes") res.status(400).json({"Error": "The request object is missing at least one of the required attributes"});
             else if (employee === "invalid first name") res.status(400).json({"Error": "The request object's first name attribute is not valid"});
@@ -324,8 +331,7 @@ router.put('/:id', function (req, res) {
 
 // Check for a valid token in request header
 router.patch("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
     else if (err.status >= 400) res.status(err.status).send("Bad Request");
     else {
         next();
@@ -338,6 +344,7 @@ router.patch('/:id', function (req, res) {
         patch_employee(req).then( (employee) => {
             res.set("Content", "application/json");
             if (employee === "not found") res.status(404).json({ 'Error': 'No employee with this employee_id exists' });
+            else if (employee === "forbidden") res.status(403).json({"Error": "Forbidden"});
             else if (employee === "invalid attribute") res.status(400).json({"Error": "The request object contains an invalid attribute"});
             else if (employee === "insufficient attributes") res.status(400).json({"Error": "The request object is missing at least one of the required attributes"});
             else if (employee === "invalid first name") res.status(400).json({"Error": "The request object's first name attribute is not valid"});
@@ -350,8 +357,7 @@ router.patch('/:id', function (req, res) {
 
 // Check for a valid token in request header
 router.delete("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
-    if (err.status === 401) res.status(401).send("Invalid token...");
-    else if (err.status === 403) res.status(403).send("Forbidden");
+    if (err.status === 401) res.status(401).json({"Error": "Invalid token..."});
     else if (err.status >= 400) res.status(err.status).send("Bad Request");
     else {
         next();
@@ -359,8 +365,9 @@ router.delete("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
 });
 // Delete a employee
 router.delete('/:id', function(req, res){
-    delete_employee(req.params.id).then( (result) => {
+    delete_employee(req).then( (result) => {
         if (result === "not found") res.status(404).json({ 'Error': 'No employee with this employee_id exists' });
+        else if (result === "forbidden") res.status(403).json({"Error": "Forbidden"});
         else res.status(204).end();
     }
     );
