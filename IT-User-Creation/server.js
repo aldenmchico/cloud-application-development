@@ -1,12 +1,9 @@
 // Import modules
-const STATE = "State";
 const axios = require('axios');
-const qs = require('qs');
 require('dotenv').config()
 
 // Datastore imports
 const ds = require('./datastore');
-const { Datastore, PropertyFilter } = require('@google-cloud/datastore');
 const datastore = ds.datastore;
 const USER = "User";
 
@@ -20,6 +17,7 @@ app.use(express.urlencoded({
 app.use(express.static('public'));
 app.enable('trust proxy'); // Enables https protocol
 
+const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const TOKEN = process.env.TOKEN;
 const CONNECTION = process.env.CONNECTION;
 const authToken = 'Bearer ' + TOKEN;
@@ -40,13 +38,12 @@ app.post('/create', async (req, res) => {
   try {
 
     // Create an account in Auth0 
-    let response = await axios.post('https://' + process.env.DOMAIN + '/api/v2/users', postData, 
+    let response = await axios.post('https://' + AUTH0_DOMAIN + '/api/v2/users', postData, 
     {headers: {'Content-Type': 'application/json', 'Authorization': `${authToken}`}});
     postData = {
       "username": `${req.body.email}`,
       "password": `${req.body.password}`
     }
-    //console.log(response.data)
 
     // Save user account info in datastore
     var key = datastore.key(USER);
@@ -64,7 +61,7 @@ app.post('/create', async (req, res) => {
 
     try {
       // Generate an ID token that can be used for authorization
-      const URL = process.env.LOCAL_DOMAIN + '/jwt'
+      const URL = process.env.GOOGLE_DOMAIN + '/jwt'
       response = await axios.post(URL, postData, {headers: {'Content-Type': 'application/json'}})
       res.status(200).send(`
       <li><b>User's Datastore ID</b>: ${new_user.id} </li>
@@ -91,16 +88,15 @@ app.post('/create', async (req, res) => {
   }
 })
 
-const DOMAIN = process.env.DOMAIN;
+
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
-
 
 // Log in with the supplied credentials
 app.post('/login', async (req, res) => {
   const username = req.body.email;
   const password = req.body.password;
-  let url = `https://${DOMAIN}/oauth/token`
+  let url = `https://${AUTH0_DOMAIN}/oauth/token`
   let postData = { 
     grant_type: 'password',
     username: username,
@@ -129,7 +125,7 @@ app.post('/login', async (req, res) => {
 app.post('/jwt', async (req, res) => {
   const username = req.body.username;
   const password = req.body.password;
-  let url = `https://${DOMAIN}/oauth/token`
+  let url = `https://${AUTH0_DOMAIN}/oauth/token`
   let postData = { 
     grant_type: 'password',
     username: username,

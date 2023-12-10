@@ -22,52 +22,55 @@ router.use(bodyParser.json());
 
 // Create an employee
 async function post_employee(req){
-    
-    // Return "invalid attribute" if an extraneous attribute was found in input
-    const keys = Object.keys(req.body);
-    for (let i = 0; i < keys.length; i++) {
-        if (keys[i] === 'first_name' ||  keys[i] == 'last_name' || keys[i] === 'pay_rate') continue;
-        return "invalid attribute";
-    }
+    try {
+        // Return "invalid attribute" if an extraneous attribute was found in input
+        const keys = Object.keys(req.body);
+        for (let i = 0; i < keys.length; i++) {
+            if (keys[i] === 'first_name' ||  keys[i] == 'last_name' || keys[i] === 'pay_rate') continue;
+            return "invalid attribute";
+        }
 
-    // Return "insufficient attributes" if not all the fields are included in request body
-    if (req.body.first_name === null || req.body.first_name === undefined ||
-        req.body.last_name === null || req.body.last_name === undefined ||
-        req.body.pay_rate === null || req.body.pay_rate === undefined ) return "insufficient attributes";
-    // Return "invalid first name" if the first_name attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!namePattern.test(req.body.first_name)) return "invalid first name";
-    // Return "invalid last name" if the first_name attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!namePattern.test(req.body.last_name)) return "invalid last name";
-    // Return "invalid pay rate" if pay rate entered is not a positive number
-    if (isNaN(Number(req.body.pay_rate))) return "invalid pay rate";
-    else if ((Number(req.body.pay_rate) < 0)) return "invalid pay rate";
+        // Return "insufficient attributes" if not all the fields are included in request body
+        if (req.body.first_name === null || req.body.first_name === undefined ||
+            req.body.last_name === null || req.body.last_name === undefined ||
+            req.body.pay_rate === null || req.body.pay_rate === undefined ) return "insufficient attributes";
+        // Return "invalid first name" if the first_name attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!namePattern.test(req.body.first_name)) return "invalid first name";
+        // Return "invalid last name" if the first_name attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!namePattern.test(req.body.last_name)) return "invalid last name";
+        // Return "invalid pay rate" if pay rate entered is not a positive number
+        if (isNaN(Number(req.body.pay_rate))) return "invalid pay rate";
+        else if ((Number(req.body.pay_rate) < 0)) return "invalid pay rate";
 
-    // Save employee with initial data from POST request
-    var key = datastore.key(EMPLOYEE);
-	const new_employee = { "first_name": req.body.first_name, "last_name": req.body.last_name, "pay_rate": req.body.pay_rate.toFixed(2), 
-                            "employer": null,  "owner": req.auth.sub };
-	let s = await datastore.save({"key":key, "data":new_employee});
-    
-    // Retrieve the employee using the generated key and add id / self entities
-    let employee_object = await datastore.get(key);
-    if (employee_object[0] !== undefined || employee_object[0] !== null) {
-        employee_object.map(ds.fromDatastore);
-        new_employee.id = employee_object[0].id;
-        new_employee.self = req.protocol + "://" + req.get("host") + req.baseUrl + "/" + employee_object[0].id;
+        // Save employee with initial data from POST request
+        var key = datastore.key(EMPLOYEE);
+        const new_employee = { "first_name": req.body.first_name, "last_name": req.body.last_name, "pay_rate": req.body.pay_rate.toFixed(2), 
+                                "employer": null,  "owner": req.auth.sub };
+        let s = await datastore.save({"key":key, "data":new_employee});
+        
+        // Retrieve the employee using the generated key and add id / self entities
+        let employee_object = await datastore.get(key);
+        if (employee_object[0] !== undefined || employee_object[0] !== null) {
+            employee_object.map(ds.fromDatastore);
+            new_employee.id = employee_object[0].id;
+            new_employee.self = req.protocol + "://" + req.get("host") + req.baseUrl + "/" + employee_object[0].id;
+        }
+        s = await datastore.save({"key":key, "data":new_employee});
+        employee_object = await datastore.get(key);
+        
+        // Return the employee object in the POST request
+        return employee_object;
+    } catch {
+        return "failed post"
     }
-    s = await datastore.save({"key":key, "data":new_employee});
-    employee_object = await datastore.get(key);
-    
-    // Return the employee object in the POST request
-    return employee_object;
 }
 
 // Get employee using ID
 async function get_employee(id) {
     try {
-    const key = datastore.key([EMPLOYEE, parseInt(id, 10)]);
-    let r = datastore.get(key);
-    return r;
+        const key = datastore.key([EMPLOYEE, parseInt(id, 10)]);
+        let r = datastore.get(key);
+        return r;
     } catch {
         return "not found";
     }
@@ -100,39 +103,42 @@ function get_employees(req){
 
 // Edit all the fields for an existing employee
 async function put_employee(req) {
+    try {
+        // Return "not found" if employee does not exist. Return "forbidden" if the user is not authorized to edit the data.
+        const key = datastore.key([EMPLOYEE, parseInt(req.params.id, 10)]);
+        let employee = await datastore.get(key);
+        if (employee[0] === undefined || employee[0] === null) return "not found";
+        else if (employee[0].owner && employee[0].owner !== req.auth.sub) return "forbidden";
 
-    // Return "not found" if employee does not exist. Return "forbidden" if the user is not authorized to edit the data.
-    const key = datastore.key([EMPLOYEE, parseInt(req.params.id, 10)]);
-    let employee = await datastore.get(key);
-    if (employee[0] === undefined || employee[0] === null) return "not found";
-    else if (employee[0].owner && employee[0].owner !== req.auth.sub) return "forbidden";
+        // Return "invalid attribute" if an extraneous attribute was found in input
+        const keys = Object.keys(req.body);
+        for (let i = 0; i < keys.length; i++) {
+            if (keys[i] === 'first_name' ||  keys[i] == 'last_name' || keys[i] === 'pay_rate') continue;
+            return "invalid attribute";
+        }
 
-    // Return "invalid attribute" if an extraneous attribute was found in input
-    const keys = Object.keys(req.body);
-    for (let i = 0; i < keys.length; i++) {
-        if (keys[i] === 'first_name' ||  keys[i] == 'last_name' || keys[i] === 'pay_rate') continue;
-        return "invalid attribute";
+        // Return "insufficient attributes" if not all the fields are included in request body
+        if (req.body.first_name === null || req.body.first_name === undefined ||
+            req.body.last_name === null || req.body.last_name === undefined ||
+            req.body.pay_rate === null || req.body.pay_rate === undefined) return "insufficient attributes";
+        // Return "invalid first name" if the first name attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!namePattern.test(req.body.first_name)) return "invalid first name";
+        // Return "invalid last name" if the first_name attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!namePattern.test(req.body.last_name)) return "invalid last name";
+        // Return "invalid pay rate" if pay rate entered is not a positive number
+        if (isNaN(Number(req.body.pay_rate))) return "invalid pay rate";
+        else if ((Number(req.body.pay_rate) < 0)) return "invalid pay rate";
+
+        // Update the employee if it exists
+        const updated_employee = { "first_name": req.body.first_name, "last_name": req.body.last_name, "pay_rate": req.body.pay_rate.toFixed(2),
+                                "id": employee[0].id, "self": employee[0].self, "owner": employee[0].owner, "employer": employee[0].employer };
+        const s = await datastore.save({ "key": key, "data": updated_employee });
+
+        // Return the updated employee object
+        return datastore.get(key);
+    } catch {
+        return "failed put"
     }
-
-    // Return "insufficient attributes" if not all the fields are included in request body
-    if (req.body.first_name === null || req.body.first_name === undefined ||
-        req.body.last_name === null || req.body.last_name === undefined ||
-        req.body.pay_rate === null || req.body.pay_rate === undefined) return "insufficient attributes";
-    // Return "invalid first name" if the first name attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!namePattern.test(req.body.first_name)) return "invalid first name";
-    // Return "invalid last name" if the first_name attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!namePattern.test(req.body.last_name)) return "invalid last name";
-    // Return "invalid pay rate" if pay rate entered is not a positive number
-    if (isNaN(Number(req.body.pay_rate))) return "invalid pay rate";
-    else if ((Number(req.body.pay_rate) < 0)) return "invalid pay rate";
-
-    // Update the employee if it exists
-    const updated_employee = { "first_name": req.body.first_name, "last_name": req.body.last_name, "pay_rate": req.body.pay_rate.toFixed(2),
-                            "id": employee[0].id, "self": employee[0].self, "owner": employee[0].owner, "employer": employee[0].employer };
-    const s = await datastore.save({ "key": key, "data": updated_employee });
-
-    // Return the updated employee object
-    return datastore.get(key);
 }
 
 
@@ -190,43 +196,43 @@ async function patch_employee(req) {
         // Return the updated employee object
         return datastore.get(key);
     } catch {
-        return "not found";
+        return "failed patch";
     }
 }
 
 // Delete employee from datastore
 async function delete_employee(req){
-    //try {
-    // Check if the employee exists. Return "not found" if true.
-    const e_key = datastore.key([EMPLOYEE, parseInt(req.params.id,10)]);
-    let employee = await datastore.get(e_key);
-    if (employee[0] === undefined || employee[0] === null) return "not found";
-    else if (employee[0].owner && employee[0].owner !== req.auth.sub) return "forbidden";
-    
-    // Get the office associated with the employee
-    if (employee[0].employer !== null) {
-        // Retrieve office from datastore
-        let o_id = employee[0].employer.id
-        let o_key = datastore.key([OFFICE, parseInt(o_id,10)]);
-        let office = await datastore.get(o_key);
-        // Remove the employee from the office
-        for (let i = 0; i < office[0].employees.length; i++) {
-            if (office[0].employees[i].id === req.params.id) delete(office[0].employees[i]);
+    try {
+        // Check if the employee exists. Return "not found" if true.
+        const e_key = datastore.key([EMPLOYEE, parseInt(req.params.id,10)]);
+        let employee = await datastore.get(e_key);
+        if (employee[0] === undefined || employee[0] === null) return "not found";
+        else if (employee[0].owner && employee[0].owner !== req.auth.sub) return "forbidden";
+        
+        // Get the office associated with the employee
+        if (employee[0].employer !== null) {
+            // Retrieve office from datastore
+            let o_id = employee[0].employer.id
+            let o_key = datastore.key([OFFICE, parseInt(o_id,10)]);
+            let office = await datastore.get(o_key);
+            // Remove the employee from the office
+            for (let i = 0; i < office[0].employees.length; i++) {
+                if (office[0].employees[i].id === req.params.id) delete(office[0].employees[i]);
+            }
+            // Remove the empty item from delete operation
+            var filtered_employees = office[0].employees.filter(x => {
+                return x != null;
+            });
+            office[0].employees = filtered_employees;
+            // Save the office with employee removed
+            let s = await datastore.save({"key":o_key, "data":office[0]});
         }
-        // Remove the empty item from delete operation
-        var filtered_employees = office[0].employees.filter(x => {
-            return x != null;
-        });
-        office[0].employees = filtered_employees;
-        // Save the office with employee removed
-        let s = await datastore.save({"key":o_key, "data":office[0]});
+        
+        // Delete the employee if the employee exists
+        return datastore.delete(e_key);
+    } catch {
+        return "not found";
     }
-    
-    // Delete the employee if the employee exists
-    return datastore.delete(e_key);
-    //} catch {
-    //    return "not found";
-    //}
 }
 
 /* ------------- End Model Functions ------------- */
@@ -242,7 +248,7 @@ router.post("/", jwtPackage.checkJwt, (err, req, res, next) => {
 });
 // Create an employee
 router.post('/', function (req, res) {
-    if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
+    if (req.get('content-type') !== 'application/json') res.status(406).json({"Error": 'Server only accepts application/json data.'});
     else {
             post_employee(req)
             .then(employee => {
@@ -252,6 +258,7 @@ router.post('/', function (req, res) {
                 else if (employee === "invalid first name") res.status(400).json({"Error": "The request object's first name attribute is not valid"});
                 else if (employee === "invalid last name") res.status(400).json({"Error": "The request object's last name attribute is not valid"});
                 else if (employee === "invalid pay rate") res.status(400).json({"Error": "The request object's pay rate attribute is not valid"});
+                else if (employee === "failed post") res.status(400).json({"Error": "Failed to create asset"});
                 else {
                     res.location(req.protocol + "://" + req.get('host') + req.baseUrl + "/" + employee[0].id); 
                     res.status(201).json(employee[0]);
@@ -287,7 +294,7 @@ router.get("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
 router.get('/:id', function (req, res) {
     get_employee(req.params.id)
         .then(employee => {
-            if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
+            if (req.get('content-type') !== 'application/json') res.status(406).json({"Error": 'Server only accepts application/json data.'});
             else {
                 if (employee[0] === undefined || employee[0] === null || employee === "not found") res.status(404).json({ 'Error': 'No employee with this employee_id exists' });
                 else if (employee[0].owner && employee[0].owner !== req.auth.sub) res.status(403).json({"Error": "Forbidden"});
@@ -310,7 +317,7 @@ router.put("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
 });
 // Edit all the fields for an existing employee
 router.put('/:id', function (req, res) {
-    if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
+    if (req.get('content-type') !== 'application/json') res.status(406).json({"Error": 'Server only accepts application/json data.'});
     else {
         put_employee(req).then( (employee) => {
             res.set("Content", "application/json");
@@ -321,6 +328,7 @@ router.put('/:id', function (req, res) {
             else if (employee === "invalid first name") res.status(400).json({"Error": "The request object's first name attribute is not valid"});
             else if (employee === "invalid last name") res.status(400).json({"Error": "The request object's last name attribute is not valid"});
             else if (employee === "invalid pay rate") res.status(400).json({"Error": "The request object's pay rate attribute is not valid"});
+            else if (employee === "failed put") res.status(400).json({"Error": "Failed to edit asset"});
             else {
                 res.location(req.protocol + "://" + req.get('host') + req.baseUrl + "/" + employee[0].id); 
                 res.status(303).json(employee[0]);
@@ -339,7 +347,7 @@ router.patch("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
 });
 // Edit one or many of the fields for an existing employee
 router.patch('/:id', function (req, res) {
-    if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
+    if (req.get('content-type') !== 'application/json') res.status(406).json({"Error": 'Server only accepts application/json data.'});
     else {
         patch_employee(req).then( (employee) => {
             res.set("Content", "application/json");
@@ -350,6 +358,7 @@ router.patch('/:id', function (req, res) {
             else if (employee === "invalid first name") res.status(400).json({"Error": "The request object's first name attribute is not valid"});
             else if (employee === "invalid last name") res.status(400).json({"Error": "The request object's last name attribute is not valid"});
             else if (employee === "invalid pay rate") res.status(400).json({"Error": "The request object's pay rate attribute is not valid"});
+            else if (employee === "failed patch") res.status(400).json({"Error": "Failed to edit asset"});
             else res.status(200).json(employee[0]);
         });
     }

@@ -1,13 +1,13 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 
+
 const router = express.Router();
 
 const ds = require('./datastore');
 const datastore = ds.datastore;
 
 const USER = "User"
-const QLIMIT = 5;
 
 router.use(bodyParser.json());
 

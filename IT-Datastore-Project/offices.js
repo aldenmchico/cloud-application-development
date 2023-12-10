@@ -33,99 +33,102 @@ router.use(bodyParser.json());
 
 // Create an office
 async function post_office(req){
-    
-    // Return "invalid attribute" if an extraneous attribute was found in input
-    const keys = Object.keys(req.body);
-    for (let i = 0; i < keys.length; i++) {
-        if (keys[i] === 'company' || keys[i] === 'city' ||  keys[i] == 'state' || keys[i] === 'general_manager' || keys[i] === 'phone_number') continue;
-        return "invalid attribute";
+    try {
+        // Return "invalid attribute" if an extraneous attribute was found in input
+        const keys = Object.keys(req.body);
+        for (let i = 0; i < keys.length; i++) {
+            if (keys[i] === 'company' || keys[i] === 'city' ||  keys[i] == 'state' || keys[i] === 'general_manager' || keys[i] === 'phone_number') continue;
+            return "invalid attribute";
+        }
+
+        // Return "insufficient attributes" if not all the fields are included in request body
+        if (req.body.company === null || req.body.company === undefined ||
+            req.body.city === null || req.body.city === undefined ||
+            req.body.state === null || req.body.state === undefined ||
+            req.body.general_manager === null || req.body.general_manager === undefined ||
+            req.body.phone_number === null || req.body.phone_number === undefined) return "insufficient attributes";
+        // Return "invalid company" if the company attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!companyPattern.test(req.body.company)) return "invalid company";
+        // Return "invalid city" if the city attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!cityPattern.test(req.body.city)) return "invalid city";
+        // Return "invalid state" if the state attribute is not in the US State Abbreviations array
+        if (!usStateAbbreviations.includes(req.body.state)) return "invalid state";
+        // Return "invalid general manager" if the general manager attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!generalManagerPattern.test(req.body.general_manager)) return "invalid general manager";
+        // Return "invalid phone" if the phone attribute contains characters not typically found in a phone number
+        if (!phonePattern.test(req.body.phone_number)) return "invalid phone";
+
+        // Return "company exists" if a company exists with the same company name provided in request body
+        const q = datastore.createQuery(OFFICE).filter(and([
+            new PropertyFilter('company', '=', req.body.company),
+            new PropertyFilter('city', '=', req.body.city),
+            new PropertyFilter('state', '=', req.body.state),
+            new PropertyFilter('owner', '=', req.auth.sub)
+            ])
+        )
+        let q_results = await datastore.runQuery(q).then((entities) => {
+            return entities[0].map(ds.fromDatastore);
+        });
+        if (q_results.length !== 0) return "company exists";
+
+        // Save office with initial data from POST request
+        var key = datastore.key(OFFICE);
+        const new_office = {"company": req.body.company, "city": req.body.city, "state": req.body.state, "general_manager": req.body.general_manager,
+                            "phone_number": req.body.phone_number, "employees": [], "owner": req.auth.sub};
+        let s = await datastore.save({"key":key, "data":new_office});
+        
+        // Retrieve the office using the generated key and add id / self entities
+        let office_object = await datastore.get(key);
+        if (office_object[0] !== undefined || office_object[0] !== null) {
+            office_object.map(ds.fromDatastore);
+            new_office.id = office_object[0].id;
+            new_office.self = req.protocol + "://" + req.get("host") + req.baseUrl + "/" + office_object[0].id;
+        }
+        s = await datastore.save({"key":key, "data":new_office});
+        office_object = await datastore.get(key);
+        
+        // Return the office object in the POST request
+        return office_object;
+    } catch {
+        return "failed post";
     }
-
-    // Return "insufficient attributes" if not all the fields are included in request body
-    if (req.body.company === null || req.body.company === undefined ||
-        req.body.city === null || req.body.city === undefined ||
-        req.body.state === null || req.body.state === undefined ||
-        req.body.general_manager === null || req.body.general_manager === undefined ||
-        req.body.phone_number === null || req.body.phone_number === undefined) return "insufficient attributes";
-    // Return "invalid company" if the company attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!companyPattern.test(req.body.company)) return "invalid company";
-    // Return "invalid city" if the city attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!cityPattern.test(req.body.city)) return "invalid city";
-    // Return "invalid state" if the state attribute is not in the US State Abbreviations array
-    if (!usStateAbbreviations.includes(req.body.state)) return "invalid state";
-    // Return "invalid general manager" if the general manager attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!generalManagerPattern.test(req.body.general_manager)) return "invalid general manager";
-    // Return "invalid phone" if the phone attribute contains characters not typically found in a phone number
-    if (!phonePattern.test(req.body.phone_number)) return "invalid phone";
-
-    // Return "company exists" if a company exists with the same company name provided in request body
-    const q = datastore.createQuery(OFFICE).filter(and([
-        new PropertyFilter('company', '=', req.body.company),
-        new PropertyFilter('city', '=', req.body.city),
-        new PropertyFilter('state', '=', req.body.state),
-        new PropertyFilter('owner', '=', req.auth.sub)
-        ])
-    )
-    let q_results = await datastore.runQuery(q).then((entities) => {
-        return entities[0].map(ds.fromDatastore);
-    });
-    if (q_results.length !== 0) return "company exists";
-
-    // Save office with initial data from POST request
-    var key = datastore.key(OFFICE);
-	const new_office = {"company": req.body.company, "city": req.body.city, "state": req.body.state, "general_manager": req.body.general_manager,
-                        "phone_number": req.body.phone_number, "employees": [], "owner": req.auth.sub};
-	let s = await datastore.save({"key":key, "data":new_office});
-    
-    // Retrieve the office using the generated key and add id / self entities
-    let office_object = await datastore.get(key);
-    if (office_object[0] !== undefined || office_object[0] !== null) {
-        office_object.map(ds.fromDatastore);
-        new_office.id = office_object[0].id;
-        new_office.self = req.protocol + "://" + req.get("host") + req.baseUrl + "/" + office_object[0].id;
-    }
-    s = await datastore.save({"key":key, "data":new_office});
-    office_object = await datastore.get(key);
-    
-    // Return the office object in the POST request
-    return office_object;
 }
 
 // Assign an employee to an office
 async function put_assign_employee(req){  
     try {
-    // Get the office and employee objects from datastore
-    const o_key = datastore.key([OFFICE, parseInt(req.params.oid,10)]);
-    let office = await datastore.get(o_key);
-    const e_key = datastore.key([EMPLOYEE, parseInt(req.params.eid,10)]);
-    let employee = await datastore.get(e_key);
+        // Get the office and employee objects from datastore
+        const o_key = datastore.key([OFFICE, parseInt(req.params.oid,10)]);
+        let office = await datastore.get(o_key);
+        const e_key = datastore.key([EMPLOYEE, parseInt(req.params.eid,10)]);
+        let employee = await datastore.get(e_key);
 
-    // Check if the office / employee do not exist. Return "not found" if true. Return "forbidden" if the user is not authorized to edit the data.
-    if (office[0] === undefined || office[0] === null ||
-        employee[0] === undefined || employee[0] === null) return "not found";
-    else if ((office[0].owner !== req.auth.sub) || ( req.auth.sub !== employee[0].owner)) return "forbidden"
+        // Check if the office / employee do not exist. Return "not found" if true. Return "forbidden" if the user is not authorized to edit the data.
+        if (office[0] === undefined || office[0] === null ||
+            employee[0] === undefined || employee[0] === null) return "not found";
+        else if ((office[0].owner !== req.auth.sub) || ( req.auth.sub !== employee[0].owner)) return "forbidden"
 
-    // Check if the employee already has a employer assigned. Return "employer assigned" if true.
-    if (employee[0].employer !== null) return "employer assigned";
+        // Check if the employee already has a employer assigned. Return "employer assigned" if true.
+        if (employee[0].employer !== null) return "employer assigned";
 
-    // Assign the employee to the office by adding to employees array
-    let employee_json = {}
-    employee_json.id = employee[0].id;
-    employee_json.self = employee[0].self;
-    employee_json.first_name = employee[0].first_name;
-    employee_json.last_name = employee[0].last_name;
-    office[0].employees.push(employee_json);
+        // Assign the employee to the office by adding to employees array
+        let employee_json = {}
+        employee_json.id = employee[0].id;
+        employee_json.self = employee[0].self;
+        employee_json.first_name = employee[0].first_name;
+        employee_json.last_name = employee[0].last_name;
+        office[0].employees.push(employee_json);
 
-    // Assign the office to the employee as employer
-    let office_json = {}
-    office_json.id = office[0].id;
-    office_json.self = office[0].self;
-    office_json.company = office[0].company;
-    employee[0].employer = office_json;
+        // Assign the office to the employee as employer
+        let office_json = {}
+        office_json.id = office[0].id;
+        office_json.self = office[0].self;
+        office_json.company = office[0].company;
+        employee[0].employer = office_json;
 
-    // Save alterations back to the datastore
-    let s = await datastore.save({"key":e_key, "data":employee[0]})
-    return datastore.save({"key":o_key, "data":office[0]});
+        // Save alterations back to the datastore
+        let s = await datastore.save({"key":e_key, "data":employee[0]})
+        return datastore.save({"key":o_key, "data":office[0]});
 
     } catch {
         return "not found";
@@ -134,41 +137,44 @@ async function put_assign_employee(req){
 
 // Remove employee from company
 async function delete_remove_employee_from_office(req){  
+    try {
+        // Get the office and employee objects from datastore
+        const o_key = datastore.key([OFFICE, parseInt(req.params.oid,10)]);
+        let office = await datastore.get(o_key);
+        const e_key = datastore.key([EMPLOYEE, parseInt(req.params.eid,10)]);
+        let employee = await datastore.get(e_key);
 
-    // Get the office and employee objects from datastore
-    const o_key = datastore.key([OFFICE, parseInt(req.params.oid,10)]);
-    let office = await datastore.get(o_key);
-    const e_key = datastore.key([EMPLOYEE, parseInt(req.params.eid,10)]);
-    let employee = await datastore.get(e_key);
+        // Check if the office / employee do not exist. Return "not found" if true. Return "forbidden" if the user is not authorized to edit the data.
+        if (office[0] === undefined || office[0] === null ||
+            employee[0] === undefined || employee[0] === null) return "not found";
+        else if ((office[0].owner !== req.auth.sub) || ( req.auth.sub !== employee[0].owner)) return "forbidden"
 
-    // Check if the office / employee do not exist. Return "not found" if true. Return "forbidden" if the user is not authorized to edit the data.
-    if (office[0] === undefined || office[0] === null ||
-        employee[0] === undefined || employee[0] === null) return "not found";
-    else if ((office[0].owner !== req.auth.sub) || ( req.auth.sub !== employee[0].owner)) return "forbidden"
-
-    // Remove the employee from the office's employees array
-    let in_employees = false;
-    for (let i = 0; i < office[0].employees.length; i++) {
-        if (office[0].employees[i].id === req.params.eid) {
-            delete(office[0].employees[i]);
-            in_employees = true;
+        // Remove the employee from the office's employees array
+        let in_employees = false;
+        for (let i = 0; i < office[0].employees.length; i++) {
+            if (office[0].employees[i].id === req.params.eid) {
+                delete(office[0].employees[i]);
+                in_employees = true;
+            }
         }
+        // Remove the empty item from delete operation
+        var filtered_employees = office[0].employees.filter(x => {
+            return x != null;
+        });
+        office[0].employees = filtered_employees;
+
+        // Check if the employee was not assigned to the office. Return "not assigned" if true.
+        if (in_employees === false) return "not assigned";
+
+        // Assign the employee's employer to null
+        employee[0].employer = null;
+
+        // Save alterations back to the datastore
+        let s = await datastore.save({"key":e_key, "data":employee[0]})
+        return datastore.save({"key":o_key, "data":office[0]});
+    } catch {
+        return "failed remove"
     }
-    // Remove the empty item from delete operation
-    var filtered_employees = office[0].employees.filter(x => {
-        return x != null;
-    });
-    office[0].employees = filtered_employees;
-
-    // Check if the employee was not assigned to the office. Return "not assigned" if true.
-    if (in_employees === false) return "not assigned";
-
-    // Assign the employee's employer to null
-    employee[0].employer = null;
-
-    // Save alterations back to the datastore
-    let s = await datastore.save({"key":e_key, "data":employee[0]})
-    return datastore.save({"key":o_key, "data":office[0]});
 }
 
 // Get office using ID
@@ -209,57 +215,61 @@ function get_offices(req){
 
 // Edit all the fields for an existing office
 async function put_office(req) {
+    try {
+        // Return "not found" if office does not exist. Return "forbidden" if the user is not authorized to edit the data.
+        const key = datastore.key([OFFICE, parseInt(req.params.id, 10)]);
+        let office = await datastore.get(key);
+        if (office[0] === undefined || office[0] === null) return "not found";
+        else if (office[0].owner && office[0].owner !== req.auth.sub) return "forbidden";
 
-    // Return "not found" if office does not exist. Return "forbidden" if the user is not authorized to edit the data.
-    const key = datastore.key([OFFICE, parseInt(req.params.id, 10)]);
-    let office = await datastore.get(key);
-    if (office[0] === undefined || office[0] === null) return "not found";
-    else if (office[0].owner && office[0].owner !== req.auth.sub) return "forbidden";
+        // Return "invalid attribute" if an extraneous attribute was found in input
+        const keys = Object.keys(req.body);
+        for (let i = 0; i < keys.length; i++) {
+            if (keys[i] === 'company' || keys[i] === 'city' ||  keys[i] == 'state' || keys[i] === 'general_manager' || keys[i] === 'phone_number') continue;
+            return "invalid attribute";
+        }
 
-    // Return "invalid attribute" if an extraneous attribute was found in input
-    const keys = Object.keys(req.body);
-    for (let i = 0; i < keys.length; i++) {
-        if (keys[i] === 'company' || keys[i] === 'city' ||  keys[i] == 'state' || keys[i] === 'general_manager' || keys[i] === 'phone_number') continue;
-        return "invalid attribute";
+        // Return "insufficient attributes" if not all the fields are included in request body
+        if (req.body.company === null || req.body.company === undefined ||
+            req.body.city === null || req.body.city === undefined ||
+            req.body.state === null || req.body.state === undefined ||
+            req.body.general_manager === null || req.body.general_manager === undefined ||
+            req.body.phone_number === null || req.body.phone_number === undefined) return "insufficient attributes";
+        // Return "invalid company" if the company attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!companyPattern.test(req.body.company)) return "invalid company";
+        // Return "invalid city" if the city attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!cityPattern.test(req.body.city)) return "invalid city";
+        // Return "invalid state" if the state attribute is not in the US State Abbreviations array
+        if (!usStateAbbreviations.includes(req.body.state)) return "invalid state";
+        // Return "invalid general manager" if the general manager attribute contains non alphanumeric characters and is not between 2-40 characters in length
+        if (!generalManagerPattern.test(req.body.general_manager)) return "invalid general manager";
+        // Return "invalid phone" if the phone attribute contains characters not typically found in a phone number
+        if (!phonePattern.test(req.body.phone_number)) return "invalid phone";
+        
+        // Return "company exists" if a office exists with the same company name provided in request body
+        const q = datastore.createQuery(OFFICE).filter(and([
+            new PropertyFilter('company', '=', req.body.company),
+            new PropertyFilter('city', '=', req.body.city),
+            new PropertyFilter('state', '=', req.body.state),
+            new PropertyFilter('owner', '=', req.auth.sub)
+            ])
+        )
+        let q_results = await datastore.runQuery(q).then((entities) => {
+            return entities[0].map(ds.fromDatastore);
+        });
+        if (q_results.length !== 0) return "company exists";
+
+        // Update the office if it exists
+        const updated_office = { "company": req.body.company, "city": req.body.city, "state": req.body.state, "general_manager": req.body.general_manager, 
+                                "phone_number": req.body.phone_number, "id": office[0].id, "self": office[0].self, "owner": office[0].owner, 
+                                "employees": office[0].employees };
+        await datastore.save({ "key": key, "data": updated_office });
+
+        // Return the updated office object
+        return datastore.get(key);
+    } catch {
+        return "failed put"
     }
-
-    // Return "insufficient attributes" if not all the fields are included in request body
-    if (req.body.company === null || req.body.company === undefined ||
-        req.body.city === null || req.body.city === undefined ||
-        req.body.state === null || req.body.state === undefined ||
-        req.body.general_manager === null || req.body.general_manager === undefined ||
-        req.body.phone_number === null || req.body.phone_number === undefined) return "insufficient attributes";
-    // Return "invalid company" if the company attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!companyPattern.test(req.body.company)) return "invalid company";
-    // Return "invalid city" if the city attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!cityPattern.test(req.body.city)) return "invalid city";
-    // Return "invalid state" if the state attribute is not in the US State Abbreviations array
-    if (!usStateAbbreviations.includes(req.body.state)) return "invalid state";
-    // Return "invalid general manager" if the general manager attribute contains non alphanumeric characters and is not between 2-40 characters in length
-    if (!generalManagerPattern.test(req.body.general_manager)) return "invalid general manager";
-    // Return "invalid phone" if the phone attribute contains characters not typically found in a phone number
-    if (!phonePattern.test(req.body.phone_number)) return "invalid phone";
-    
-    // Return "company exists" if a office exists with the same company name provided in request body
-    const q = datastore.createQuery(OFFICE).filter(and([
-        new PropertyFilter('company', '=', req.body.company),
-        new PropertyFilter('city', '=', req.body.city),
-        new PropertyFilter('state', '=', req.body.state),
-        new PropertyFilter('owner', '=', req.auth.sub)
-        ])
-    )
-    let q_results = await datastore.runQuery(q).then((entities) => {
-        return entities[0].map(ds.fromDatastore);
-    });
-    if (q_results.length !== 0) return "company exists";
-
-    // Update the office if it exists
-    const updated_office = { "company": req.body.company, "city": req.body.city, "state": req.body.state, "general_manager": req.body.general_manager, 
-                            "phone_number": req.body.phone_number, "id": office[0].id, "self": office[0].self, "owner": office[0].owner };
-    await datastore.save({ "key": key, "data": updated_office });
-
-    // Return the updated office object
-    return datastore.get(key);
 }
 
 
@@ -284,6 +294,7 @@ async function patch_office(req) {
         updated_office.id = office[0].id;
         updated_office.self = office[0].self;
         updated_office.owner = office[0].owner;
+        updated_office.employees = office[0].employees;
 
         // Update company attribute if it's included in the request body.
         if (req.body.company === undefined) updated_office.company = office[0].company;
@@ -345,24 +356,42 @@ async function patch_office(req) {
         // Return the updated office object
         return datastore.get(key);
     } catch {
-        // Return "not found" if the key check fails.
-        return "not found";
+        return "failed patch";
     }
 }
 
 // Delete office with provided ID
 async function delete_office(req){
-    
-    // Return "not found" if office does not exist. Return "forbidden" if the user is not authorized to edit the data.
-    const key = datastore.key([OFFICE, parseInt(req.params.id, 10)]);
     try {
+        // Return "not found" if office does not exist. Return "forbidden" if the user is not authorized to edit the data.
+        const key = datastore.key([OFFICE, parseInt(req.params.id, 10)]);
         let office = await datastore.get(key);
         if (office[0] === undefined || office[0] === null) return "not found";
         else if (office[0].owner && office[0].owner !== req.auth.sub) return "forbidden";
-        // Delete the office if it exists
-        return datastore.delete(key);
-    }
-    catch {
+        else {
+            // Get all the ids for employees associated with an office
+            let employee_ids = []
+            for (let i = 0; i < office[0].employees.length; i++) {
+                employee_ids.push(office[0].employees[i].id)
+            }
+
+            // Find employees where office to be deleted is the employer of the employee
+            let e_key;
+            let employee;
+            for (let i = 0; i < employee_ids.length; i++) {
+
+                // Retrieve employee from datastore
+                e_key = datastore.key([EMPLOYEE, parseInt(employee_ids[i],10)]);
+                employee = await datastore.get(e_key);
+
+                // Assign the employee's employer to null and save to datastore.
+                employee[0].employer = null;
+                let s = await datastore.save({"key":e_key, "data":employee[0]})
+            }
+            // Delete the office if it exists
+            return datastore.delete(key);
+        }
+    } catch {
         return "not found";
     }
 }
@@ -380,7 +409,7 @@ router.post("/", jwtPackage.checkJwt, (err, req, res, next) => {
 });
 // Create an office
 router.post('/', function (req, res) {
-    if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
+    if (req.get('content-type') !== 'application/json') res.status(406).json({"Error": 'Server only accepts application/json data.'});
     else {
             post_office(req)
             .then(office => {
@@ -393,6 +422,7 @@ router.post('/', function (req, res) {
                 else if (office === "invalid general manager") res.status(400).json({"Error": "The request object's general manager attribute is not valid"});
                 else if (office === "invalid phone") res.status(400).json({"Error": "The request object's phone number attribute is not valid"});
                 else if (office === "company exists") res.status(403).json({"Error": "The company provided in request already exists for this user"});
+                else if (office === "failed post") res.status(400).json({"Error": "Failed to create asset"});
                 else {
                     res.location(req.protocol + "://" + req.get('host') + req.baseUrl + "/" + office[0].id); 
                     res.status(201).json(office[0]);
@@ -436,6 +466,7 @@ router.delete('/:oid/employees/:eid', function(req, res){
         if (result === "not assigned") res.status(404).json({"Error": "No office with this office_id is loaded with the employee with this employee_id"})
         else if (result === "forbidden") res.status(403).json({"Error": "Forbidden"});
         else if (result === "not found") res.status(404).json({"Error": "The specified employee and/or office does not exist"})
+        else if (result === "failed remove") res.status(400).json({"Error": "Failed to edit asset"});
         else res.status(204).json(result[0])
     }
         );
@@ -468,7 +499,7 @@ router.get("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
 router.get('/:id', function (req, res) {
     get_office(req.params.id)
         .then(office => {
-            if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
+            if (req.get('content-type') !== 'application/json') res.status(406).json({"Error": 'Server only accepts application/json data.'});
             else {
                 if (office[0] === undefined || office[0] === null || office === "not found") res.status(404).json({ 'Error': 'No office with this office_id exists' });
                 else if (office[0].owner && office[0].owner !== req.auth.sub) res.status(403).json({"Error": "Forbidden"});
@@ -487,7 +518,7 @@ router.put("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
 });
 // Edit all the fields for an existing office
 router.put('/:id', function (req, res) {
-    if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
+    if (req.get('content-type') !== 'application/json') res.status(406).json({"Error": 'Server only accepts application/json data.'});
     else {
         put_office(req).then( (office) => {
             res.set("Content", "application/json");
@@ -501,6 +532,7 @@ router.put('/:id', function (req, res) {
             else if (office === "invalid general manager") res.status(400).json({"Error": "The request object's general manager attribute is not valid"});
             else if (office === "invalid phone") res.status(400).json({"Error": "The request object's phone number attribute is not valid"});
             else if (office === "company exists") res.status(403).json({"Error": "The company provided in request already exists for this user"});
+            else if (office === "failed put") res.status(400).json({"Error": "Failed to edit asset"});
             else {
                 res.location(req.protocol + "://" + req.get('host') + req.baseUrl + "/" + office[0].id); 
                 res.status(303).json(office[0]);
@@ -520,7 +552,7 @@ router.patch("/:id", jwtPackage.checkJwt, (err, req, res, next) => {
 });
 // Edit one or many of the fields for an existing office
 router.patch('/:id', function (req, res) {
-    if (req.get('content-type') !== 'application/json') res.status(415).json({"Error": 'Server only accepts application/json data.'});
+    if (req.get('content-type') !== 'application/json') res.status(406).json({"Error": 'Server only accepts application/json data.'});
     else {
         patch_office(req).then( (office) => {
             res.set("Content", "application/json");
@@ -534,6 +566,7 @@ router.patch('/:id', function (req, res) {
             else if (office === "invalid general manager") res.status(400).json({"Error": "The request object's general manager attribute is not valid"});
             else if (office === "invalid phone") res.status(400).json({"Error": "The request object's phone number attribute is not valid"});
             else if (office === "company exists") res.status(403).json({"Error": "The company provided in request already exists for this user"});
+            else if (office === "failed patch") res.status(400).json({"Error": "Failed to edit asset"});
             else res.status(200).json(office[0]);
         });
     }
